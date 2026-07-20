@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>鳥羽・伊勢 さんぽ地図</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ai:#16324A;        /* 海の藍 */
+  --asagi:#4E8FA8;     /* 浅葱 */
+  --shu:#D8432C;       /* 鳥居の朱 */
+  --suna:#EFE9DD;      /* 砂 */
+  --shiro:#FBFCFC;
+  --sumi:#22303B;
+  --radius:14px;
+  --shadow:0 6px 24px rgba(22,50,74,.18);
+  --font-ui:"Zen Kaku Gothic New",sans-serif;
+  --font-display:"Shippori Mincho",serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overscroll-behavior:none}
+body{font-family:var(--font-ui);color:var(--sumi);background:var(--suna)}
+#map{position:fixed;inset:0;z-index:0}
+
+/* ---------- ヘッダー ---------- */
+header{
+  position:fixed;top:0;left:0;right:0;z-index:1000;
+  background:var(--ai);color:var(--shiro);
+  padding:10px 14px 10px;
+  box-shadow:0 2px 12px rgba(22,50,74,.35);
+}
+header h1{
+  font-family:var(--font-display);font-weight:800;font-size:17px;
+  letter-spacing:.14em;display:flex;align-items:center;gap:8px;
+}
+header h1 .maru{
+  width:10px;height:10px;border-radius:50%;background:var(--shu);
+  display:inline-block;flex:0 0 auto;
+}
+/* 青海波の帯 (signature) */
+.seigaiha{
+  position:fixed;left:0;right:0;z-index:999;height:12px;
+  top:var(--header-h,44px);
+  background:
+    radial-gradient(circle at 50% 0,transparent 6px,var(--ai) 6.5px 8px,transparent 8.5px) 0 0/24px 12px repeat-x,
+    radial-gradient(circle at 50% 0,transparent 6px,var(--ai) 6.5px 8px,transparent 8.5px) 12px 6px/24px 12px repeat-x;
+  pointer-events:none;opacity:.9;
+}
+
+/* ---------- 検索 ---------- */
+.searchbar{display:flex;gap:8px;margin-top:8px}
+.searchbar input{
+  flex:1;border:none;border-radius:9px;padding:9px 12px;font:inherit;font-size:15px;
+  background:var(--shiro);color:var(--sumi);outline:none;
+}
+.searchbar button{
+  border:none;border-radius:9px;padding:0 14px;font:inherit;font-weight:700;
+  background:var(--asagi);color:#fff;
+}
+.search-results{
+  position:fixed;left:14px;right:14px;z-index:1001;display:none;
+  background:var(--shiro);border-radius:var(--radius);box-shadow:var(--shadow);
+  max-height:40vh;overflow:auto;
+}
+.search-results button{
+  display:block;width:100%;text-align:left;border:none;background:none;
+  padding:12px 14px;font:inherit;font-size:14px;border-bottom:1px solid var(--suna);
+}
+.search-results button small{color:#7a8791;display:block;font-size:12px}
+
+/* ---------- 日タブ ---------- */
+.daytabs{display:flex;gap:6px;margin-top:8px}
+.daytabs button{
+  flex:1;border:none;border-radius:9px;padding:7px 0;
+  font:inherit;font-size:13px;font-weight:700;
+  background:rgba(251,252,252,.16);color:var(--shiro);
+}
+.daytabs button.sel{background:var(--shiro);color:var(--ai)}
+.daytabs button.sel[data-day="1"]{background:#D8432C;color:#fff}
+.daytabs button.sel[data-day="2"]{background:#4E8FA8;color:#fff}
+.daytabs button.sel[data-day="3"]{background:#3E7C4F;color:#fff}
+
+/* ---------- ボタン類 ---------- */
+.fab{
+  position:fixed;right:16px;z-index:900;
+  bottom:calc(20px + env(safe-area-inset-bottom));
+  width:58px;height:58px;border-radius:50%;border:none;
+  background:var(--shu);color:#fff;font-size:30px;line-height:1;
+  box-shadow:var(--shadow);font-family:var(--font-ui);
+}
+.fab.cancel{background:var(--sumi)}
+.reload{
+  position:fixed;left:16px;z-index:900;
+  bottom:calc(20px + env(safe-area-inset-bottom));
+  height:44px;border:none;border-radius:22px;padding:0 16px;
+  background:var(--shiro);color:var(--ai);font:inherit;font-weight:700;
+  box-shadow:var(--shadow);
+}
+.hint{
+  position:fixed;left:50%;transform:translateX(-50%);z-index:900;display:none;
+  bottom:calc(92px + env(safe-area-inset-bottom));
+  background:var(--ai);color:#fff;border-radius:20px;padding:8px 16px;
+  font-size:13px;box-shadow:var(--shadow);white-space:nowrap;
+}
+
+/* ---------- ボトムシート ---------- */
+.sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:1100;
+  background:var(--shiro);border-radius:18px 18px 0 0;
+  box-shadow:0 -8px 30px rgba(22,50,74,.3);
+  max-height:82vh;overflow-y:auto;
+  padding:10px 18px calc(18px + env(safe-area-inset-bottom));
+  transform:translateY(105%);transition:transform .25s ease;
+}
+.sheet.open{transform:translateY(0)}
+.sheet .grip{width:42px;height:4px;border-radius:2px;background:#cdd6db;margin:2px auto 12px}
+.sheet h2{
+  font-family:var(--font-display);font-weight:600;font-size:20px;
+  border-left:4px solid var(--shu);padding-left:10px;margin-bottom:6px;
+  overflow-wrap:anywhere;
+}
+.chip{
+  display:inline-block;font-size:12px;font-weight:700;color:#fff;
+  border-radius:11px;padding:2px 10px;margin:0 6px 10px 0;
+}
+.memo{font-size:14.5px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;margin-bottom:14px}
+.photostrip{display:flex;gap:8px;overflow-x:auto;margin-bottom:14px;-webkit-overflow-scrolling:touch}
+.photostrip img{
+  height:120px;min-width:120px;border-radius:10px;flex:0 0 auto;background:var(--suna);
+  object-fit:cover;max-width:200px;
+}
+.sheet .row{display:flex;gap:10px}
+.btn{
+  flex:1;border:none;border-radius:11px;padding:12px;font:inherit;font-size:15px;font-weight:700;
+}
+.btn.primary{background:var(--ai);color:#fff}
+.btn.danger{background:none;color:var(--shu);border:1.5px solid var(--shu)}
+.btn.danger.arm{background:var(--shu);color:#fff}
+.btn.ghost{background:var(--suna);color:var(--sumi)}
+.btn:disabled{opacity:.5}
+
+/* ---------- フォーム ---------- */
+label.fld{display:block;font-size:13px;font-weight:700;color:var(--ai);margin:12px 0 4px}
+input[type=text],input[type=password],input[type=time],textarea,select{
+  width:100%;border:1.5px solid #d5dde2;border-radius:10px;padding:10px 12px;
+  font:inherit;font-size:15px;background:#fff;outline:none;
+}
+input:focus,textarea:focus{border-color:var(--asagi)}
+textarea{min-height:84px;resize:vertical}
+.cat-picker,.day-picker{display:flex;gap:8px}
+.cat-picker button,.day-picker button{
+  flex:1;border:1.5px solid #d5dde2;background:#fff;border-radius:10px;
+  padding:9px 0;font:inherit;font-size:13.5px;font-weight:700;color:var(--sumi);
+}
+.cat-picker button.sel,.day-picker button.sel{color:#fff;border-color:transparent}
+.timewrap{display:none;margin-top:8px}
+.timewrap.show{display:block}
+.photo-edit{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.photo-edit .ph{position:relative}
+.photo-edit img{width:76px;height:76px;object-fit:cover;border-radius:10px;display:block;background:var(--suna)}
+.photo-edit .del{
+  position:absolute;top:-7px;right:-7px;width:24px;height:24px;border-radius:50%;
+  border:none;background:var(--sumi);color:#fff;font-size:14px;line-height:1;
+}
+.photo-add{
+  width:76px;height:76px;border-radius:10px;border:1.5px dashed var(--asagi);
+  background:none;color:var(--asagi);font-size:26px;
+}
+#photoInput{display:none}
+
+/* ---------- 合言葉ゲート ---------- */
+.gate{
+  position:fixed;inset:0;z-index:3000;display:none;
+  background:var(--ai);color:var(--shiro);
+  padding:24px;flex-direction:column;justify-content:center;align-items:center;gap:0;
+}
+.gate.show{display:flex}
+.gate h1{
+  font-family:var(--font-display);font-weight:800;font-size:24px;
+  letter-spacing:.18em;margin-bottom:6px;text-align:center;
+}
+.gate p{font-size:13px;color:#b9c7d2;margin-bottom:26px}
+.gate .gate-wave{
+  width:min(320px,80vw);height:12px;margin-bottom:26px;opacity:.7;
+  background:
+    radial-gradient(circle at 50% 0,transparent 6px,#B9C7D2 6.5px 8px,transparent 8.5px) 0 0/24px 12px repeat-x,
+    radial-gradient(circle at 50% 0,transparent 6px,#B9C7D2 6.5px 8px,transparent 8.5px) 12px 6px/24px 12px repeat-x;
+}
+.gate input{
+  width:min(320px,80vw);border:none;border-radius:10px;padding:12px 14px;
+  font:inherit;font-size:16px;text-align:center;
+}
+.gate button{
+  width:min(320px,80vw);margin-top:12px;border:none;border-radius:10px;
+  padding:13px;font:inherit;font-size:15px;font-weight:700;
+  background:var(--shu);color:#fff;
+}
+.gate .gate-msg{margin-top:14px;margin-bottom:0;color:#ffd9d1;min-height:1.2em}
+
+/* ---------- 写真拡大 ---------- */
+.lightbox{
+  position:fixed;inset:0;z-index:2500;display:none;
+  background:rgba(10,20,28,.92);
+  justify-content:center;align-items:center;
+}
+.lightbox.show{display:flex}
+.lightbox img{max-width:96vw;max-height:92vh;border-radius:6px}
+
+/* ---------- マーカー・トースト ---------- */
+.pin-ico{
+  position:relative;
+  width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+  border:2.5px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);
+}
+.pin-ico::after{
+  content:"";position:absolute;inset:5.5px;border-radius:50%;background:#fff;opacity:.95;
+}
+.pin-ico span{
+  position:absolute;inset:0;z-index:1;
+  display:flex;align-items:center;justify-content:center;
+  transform:rotate(45deg);
+  font-family:var(--font-ui);font-size:12.5px;font-weight:700;line-height:1;
+}
+.toast{
+  position:fixed;top:calc(var(--header-h,44px) + 70px);left:50%;transform:translateX(-50%);
+  z-index:3500;background:var(--sumi);color:#fff;border-radius:10px;
+  padding:10px 18px;font-size:14px;box-shadow:var(--shadow);
+  opacity:0;transition:opacity .25s;pointer-events:none;max-width:88vw;
+}
+.toast.show{opacity:1}
+.overlay{position:fixed;inset:0;z-index:1050;display:none;background:rgba(22,50,74,.35)}
+.overlay.show{display:block}
+.leaflet-control-attribution{font-size:10px}
+</style>
+</head>
+<body>
+
+<header id="header">
+  <h1><span class="maru"></span>鳥羽・伊勢 さんぽ地図</h1>
+  <div class="searchbar">
+    <input id="searchInput" type="search" placeholder="場所を探す（例: 鳥羽駅）" enterkeyhint="search">
+    <button id="searchBtn">検索</button>
+  </div>
+  <div class="daytabs" id="daytabs">
+    <button data-day="0" class="sel">すべて</button>
+    <button data-day="1">1日目</button>
+    <button data-day="2">2日目</button>
+    <button data-day="3">3日目</button>
+  </div>
+</header>
+<div class="seigaiha" id="wave"></div>
+<div class="search-results" id="searchResults"></div>
+
+<div id="map"></div>
+
+<button class="reload" id="reloadBtn">↻ 更新</button>
+<button class="fab" id="addBtn" aria-label="ピンを追加">＋</button>
+<div class="hint" id="hint">地図をタップしてピンの場所を決める</div>
+
+<div class="overlay" id="overlay"></div>
+
+<!-- 合言葉ゲート -->
+<div class="gate" id="gate">
+  <h1>鳥羽・伊勢<br>さんぽ地図</h1>
+  <div class="gate-wave"></div>
+  <p>ふたりの合言葉を入力してください</p>
+  <input type="password" id="gateInput" placeholder="合言葉" autocomplete="current-password">
+  <button id="gateBtn">開く</button>
+  <p class="gate-msg" id="gateMsg"></p>
+</div>
+
+<!-- 詳細シート -->
+<div class="sheet" id="detailSheet">
+  <div class="grip"></div>
+  <div class="photostrip" id="detailPhotos"></div>
+  <h2 id="detailName"></h2>
+  <div>
+    <span class="chip" id="detailChip"></span>
+    <span class="chip" id="detailWhen" style="display:none"></span>
+  </div>
+  <p class="memo" id="detailMemo"></p>
+  <div class="row">
+    <button class="btn ghost" id="editBtn">編集</button>
+    <button class="btn danger" id="deleteBtn">削除</button>
+  </div>
+</div>
+
+<!-- 入力フォームシート -->
+<div class="sheet" id="formSheet">
+  <div class="grip"></div>
+  <h2 id="formTitle">ピンを追加</h2>
+  <label class="fld" for="fName">名前 *</label>
+  <input type="text" id="fName" placeholder="例: おかげ横丁の赤福本店">
+  <label class="fld">カテゴリ</label>
+  <div class="cat-picker" id="catPicker"></div>
+  <label class="fld">何日目に行く？</label>
+  <div class="day-picker" id="dayPicker"></div>
+  <div class="timewrap" id="timeWrap">
+    <label class="fld" for="fTime" style="margin-top:0">時刻（順番の並びに使います）</label>
+    <input type="time" id="fTime">
+  </div>
+  <label class="fld" for="fMemo">メモ</label>
+  <textarea id="fMemo" placeholder="営業時間、行きたい理由、感想など"></textarea>
+  <label class="fld">写真</label>
+  <div class="photo-edit" id="photoEdit"></div>
+  <input type="file" id="photoInput" accept="image/*" multiple>
+  <div class="row" style="margin-top:16px">
+    <button class="btn ghost" id="cancelBtn">やめる</button>
+    <button class="btn primary" id="saveBtn">保存する</button>
+  </div>
+</div>
+
+<!-- 写真拡大 -->
+<div class="lightbox" id="lightbox"><img id="lightboxImg" alt="拡大写真"></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* ================= 設定 ================= */
+// GASをウェブアプリとしてデプロイして得た /exec URL に書き換える
+const GAS_URL = "ここにGASのURLを貼る";
+// 合言葉はここには書かない。code.gs のPASSWORDと同じものを初回に入力する
+
+const CATEGORIES = {
+  "観光":   "#D8432C",
+  "グルメ": "#C98A12",
+  "宿":     "#4E8FA8",
+  "その他": "#5B6B76"
+};
+const DAY_COLORS = { 1: "#D8432C", 2: "#4E8FA8", 3: "#3E7C4F" };
+const DAY_COUNT = 3;
+const DEFAULT_BOUNDS = [[34.42, 136.69], [34.50, 136.90]]; // 伊勢〜鳥羽
+
+/* ================= 状態 ================= */
+let apiKey = localStorage.getItem("tobaMapKey") || "";
+let pins = [];
+let markers = {};
+let currentPin = null;
+let placing = false;
+let tempMarker = null;
+let editing = null;
+let formLatLng = null;
+let keepPhotoIds = [];
+let newPhotos = [];
+let formCategory = "観光";
+let formDay = 0;            // 0=なし, 1〜3=◯日目
+let viewDay = 0;            // 表示中タブ (0=すべて)
+const photoCache = {};
+
+/* ================= 地図 ================= */
+const map = L.map("map", { zoomControl: false }).fitBounds(DEFAULT_BOUNDS);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+}).addTo(map);
+L.control.zoom({ position: "bottomright" }).addTo(map);
+const routeLayer = L.layerGroup().addTo(map); // 日別ルートの線と矢印
+
+function pinIcon(color, num) {
+  const n = (num != null)
+    ? '<span style="color:' + color + '">' + num + "</span>" : "";
+  return L.divIcon({
+    className: "",
+    html: '<div class="pin-ico" style="background:' + color + '">' + n + "</div>",
+    iconSize: [28, 28], iconAnchor: [14, 28]
+  });
+}
+
+/* ================= API ================= */
+async function api(body) {
+  body.key = apiKey;
+  const res = await fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" }, // プリフライト回避
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (data.status !== "ok") {
+    if (data.message === "auth") { showGate("合言葉が違います"); throw new Error("合言葉が違います"); }
+    throw new Error(data.message || "エラー");
+  }
+  return data;
+}
+
+/* ================= 合言葉ゲート ================= */
+const gate = document.getElementById("gate");
+const gateInput = document.getElementById("gateInput");
+const gateMsg = document.getElementById("gateMsg");
+
+function showGate(msg) {
+  localStorage.removeItem("tobaMapKey");
+  gateMsg.textContent = msg || "";
+  gate.classList.add("show");
+}
+async function tryEnter() {
+  const val = gateInput.value.trim();
+  if (!val) return;
+  apiKey = val;
+  gateMsg.textContent = "確認中…";
+  try {
+    const data = await api({ action: "list" });
+    localStorage.setItem("tobaMapKey", apiKey);
+    gate.classList.remove("show");
+    gateInput.value = "";
+    pins = data.pins;
+    renderMarkers();
+  } catch (e) { /* showGateがメッセージを出す */ }
+}
+document.getElementById("gateBtn").addEventListener("click", tryEnter);
+gateInput.addEventListener("keydown", e => { if (e.key === "Enter") tryEnter(); });
+
+/* ================= 日別タブ ================= */
+const daytabs = document.getElementById("daytabs");
+daytabs.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  setViewDay(Number(b.dataset.day));
+});
+
+function setViewDay(d) {
+  viewDay = d;
+  daytabs.querySelectorAll("button").forEach(b => {
+    b.classList.toggle("sel", Number(b.dataset.day) === d);
+  });
+  renderMarkers();
+  if (d > 0) {
+    const list = dayPins(d);
+    if (!list.length) {
+      toast(d + "日目のピンはまだありません。ピンの編集で「何日目に行く？」を設定してください");
+    } else if (list.length >= 2) {
+      map.fitBounds(L.latLngBounds(list.map(p => [p.lat, p.lng])).pad(0.25));
+    } else {
+      map.setView([list[0].lat, list[0].lng], Math.max(map.getZoom(), 14));
+    }
+  }
+}
+
+// その日のピンを時刻順に並べる(時刻なしは最後、同時刻は作成順)
+function dayPins(d) {
+  return pins
+    .filter(p => p.day === d)
+    .sort((a, b) =>
+      (a.time || "99:99").localeCompare(b.time || "99:99") ||
+      String(a.id).localeCompare(String(b.id))
+    );
+}
+
+/* ================= 表示 ================= */
+function renderMarkers() {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+  routeLayer.clearLayers();
+
+  if (viewDay === 0) {
+    // すべて: カテゴリ色・番号なし・線なし
+    pins.forEach(pin => addMarker(pin, CATEGORIES[pin.category] || CATEGORIES["その他"], null));
+    return;
+  }
+
+  const list = dayPins(viewDay);
+  const color = DAY_COLORS[viewDay];
+  drawRoute(list, color);
+  list.forEach((pin, i) => addMarker(pin, color, i + 1)); // 中央に順番の数字
+}
+
+function addMarker(pin, color, num) {
+  const m = L.marker([pin.lat, pin.lng], { icon: pinIcon(color, num) }).addTo(map);
+  m.on("click", () => openDetail(pin.id));
+  markers[pin.id] = m;
+}
+
+/* ---- ルート線: 白フチ + 日別カラー + 区間ごとの進行方向矢印 ---- */
+function drawRoute(list, color) {
+  if (list.length < 2) return;
+  const latlngs = list.map(p => [p.lat, p.lng]);
+  routeLayer.addLayer(L.polyline(latlngs, {
+    color: "#ffffff", weight: 9, opacity: .9, lineJoin: "round", lineCap: "round", interactive: false
+  }));
+  routeLayer.addLayer(L.polyline(latlngs, {
+    color: color, weight: 4.5, opacity: .95, lineJoin: "round", lineCap: "round", interactive: false
+  }));
+  for (let i = 0; i < list.length - 1; i++) {
+    routeLayer.addLayer(segmentArrow(list[i], list[i + 1], color));
+  }
+}
+
+// 区間の中間に、進行方向へ回転させた矢印を置く
+function segmentArrow(a, b, color) {
+  const midLat = (a.lat + b.lat) / 2;
+  const midLng = (a.lng + b.lng) / 2;
+  const rad = midLat * Math.PI / 180;
+  const dx = (b.lng - a.lng) * Math.cos(rad);
+  const dy = b.lat - a.lat;
+  const ang = Math.atan2(dx, dy) * 180 / Math.PI; // 北=0°、時計回り
+  const svg =
+    '<svg width="20" height="20" viewBox="0 0 20 20" style="display:block;transform:rotate(' + ang + 'deg)">' +
+    '<path d="M10 2.5 L16.5 16 L10 12.2 L3.5 16 Z" fill="' + color + '" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+  return L.marker([midLat, midLng], {
+    icon: L.divIcon({ className: "", html: svg, iconSize: [20, 20], iconAnchor: [10, 10] }),
+    interactive: false, keyboard: false
+  });
+}
+
+async function loadPins(silent) {
+  try {
+    const data = await api({ action: "list" });
+    pins = data.pins;
+    renderMarkers();
+    if (!silent) toast("最新の状態に更新しました");
+  } catch (e) {
+    if (!gate.classList.contains("show")) {
+      toast("読み込みに失敗しました。電波の良い場所で「更新」を押してください");
+    }
+  }
+}
+
+/* ================= 写真の取得 (GAS経由・合言葉付き) ================= */
+async function loadPhoto(id) {
+  if (photoCache[id]) return photoCache[id];
+  const data = await api({ action: "photo", id: id });
+  const url = "data:" + data.mime + ";base64," + data.data;
+  photoCache[id] = url;
+  return url;
+}
+async function fillPhotos(imgs) {
+  for (const img of imgs) {
+    try { img.src = await loadPhoto(img.dataset.pid); }
+    catch (e) { /* 認証切れ等。ゲート側で対応 */ }
+  }
+}
+
+/* ================= 詳細シート ================= */
+const detailSheet = document.getElementById("detailSheet");
+const formSheet = document.getElementById("formSheet");
+const overlay = document.getElementById("overlay");
+
+function openDetail(id) {
+  const pin = pins.find(p => p.id === id);
+  if (!pin) return;
+  currentPin = pin;
+  document.getElementById("detailName").textContent = pin.name;
+  const chip = document.getElementById("detailChip");
+  chip.textContent = pin.category || "その他";
+  chip.style.background = CATEGORIES[pin.category] || CATEGORIES["その他"];
+  const when = document.getElementById("detailWhen");
+  if (pin.day) {
+    when.textContent = pin.day + "日目" + (pin.time ? " " + pin.time : "");
+    when.style.background = DAY_COLORS[pin.day];
+    when.style.display = "inline-block";
+  } else {
+    when.style.display = "none";
+  }
+  document.getElementById("detailMemo").textContent = pin.memo || "";
+  const strip = document.getElementById("detailPhotos");
+  strip.innerHTML = "";
+  const imgs = pin.photoIds.map(pid => {
+    const img = document.createElement("img");
+    img.dataset.pid = pid;
+    img.alt = pin.name + "の写真";
+    img.onclick = () => openLightbox(pid);
+    strip.appendChild(img);
+    return img;
+  });
+  strip.style.display = pin.photoIds.length ? "flex" : "none";
+  fillPhotos(imgs);
+  resetDeleteBtn();
+  showSheet(detailSheet);
+  map.panTo([pin.lat, pin.lng]);
+}
+
+function showSheet(sheet) {
+  closeSheets();
+  overlay.classList.add("show");
+  sheet.classList.add("open");
+}
+function closeSheets() {
+  overlay.classList.remove("show");
+  detailSheet.classList.remove("open");
+  formSheet.classList.remove("open");
+  resetDeleteBtn();
+}
+overlay.addEventListener("click", closeSheets);
+
+/* ---- 写真拡大 ---- */
+const lightbox = document.getElementById("lightbox");
+async function openLightbox(pid) {
+  const img = document.getElementById("lightboxImg");
+  img.src = "";
+  lightbox.classList.add("show");
+  try { img.src = await loadPhoto(pid); } catch (e) { lightbox.classList.remove("show"); }
+}
+lightbox.addEventListener("click", () => lightbox.classList.remove("show"));
+
+/* ---- 削除 (誤タップ防止の2段階) ---- */
+const deleteBtn = document.getElementById("deleteBtn");
+function resetDeleteBtn() {
+  deleteBtn.classList.remove("arm");
+  deleteBtn.textContent = "削除";
+  deleteBtn.disabled = false;
+}
+deleteBtn.addEventListener("click", async () => {
+  if (!currentPin) return;
+  if (!deleteBtn.classList.contains("arm")) {
+    deleteBtn.classList.add("arm");
+    deleteBtn.textContent = "もう一度押すと削除";
+    return;
+  }
+  deleteBtn.disabled = true;
+  deleteBtn.textContent = "削除中…";
+  try {
+    await api({ action: "delete", id: currentPin.id });
+    pins = pins.filter(p => p.id !== currentPin.id);
+    renderMarkers();
+    closeSheets();
+    toast("削除しました");
+  } catch (e) {
+    resetDeleteBtn();
+    toast("削除に失敗しました: " + e.message);
+  }
+});
+
+/* ================= 追加・編集フォーム ================= */
+const addBtn = document.getElementById("addBtn");
+const hint = document.getElementById("hint");
+
+addBtn.addEventListener("click", () => {
+  if (placing) { stopPlacing(); return; }
+  placing = true;
+  addBtn.textContent = "×";
+  addBtn.classList.add("cancel");
+  hint.style.display = "block";
+  closeSheets();
+});
+function stopPlacing() {
+  placing = false;
+  addBtn.textContent = "＋";
+  addBtn.classList.remove("cancel");
+  hint.style.display = "none";
+  if (tempMarker) { map.removeLayer(tempMarker); tempMarker = null; }
+}
+
+map.on("click", e => {
+  if (!placing) return;
+  openForm(null, e.latlng);
+});
+map.on("contextmenu", e => {
+  if (formSheet.classList.contains("open")) return;
+  openForm(null, e.latlng);
+});
+
+function openForm(pin, latlng) {
+  editing = pin;
+  formLatLng = pin ? { lat: pin.lat, lng: pin.lng } : latlng;
+  keepPhotoIds = pin ? pin.photoIds.slice() : [];
+  newPhotos = [];
+  formCategory = pin ? (pin.category || "その他") : "観光";
+  formDay = pin ? (pin.day || 0) : viewDay; // 日タブ表示中の新規はその日を初期値に
+  document.getElementById("formTitle").textContent = pin ? "ピンを編集" : "ピンを追加";
+  document.getElementById("fName").value = pin ? pin.name : "";
+  document.getElementById("fMemo").value = pin ? pin.memo : "";
+  document.getElementById("fTime").value = pin ? (pin.time || "") : "";
+  renderCatPicker();
+  renderDayPicker();
+  renderPhotoEdit();
+  if (tempMarker) map.removeLayer(tempMarker);
+  tempMarker = L.marker([formLatLng.lat, formLatLng.lng], {
+    icon: pinIcon(CATEGORIES[formCategory])
+  }).addTo(map);
+  showSheet(formSheet);
+}
+
+document.getElementById("editBtn").addEventListener("click", () => {
+  if (currentPin) openForm(currentPin, null);
+});
+document.getElementById("cancelBtn").addEventListener("click", () => {
+  closeSheets(); stopPlacing();
+});
+
+function renderCatPicker() {
+  const box = document.getElementById("catPicker");
+  box.innerHTML = "";
+  Object.keys(CATEGORIES).forEach(cat => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = cat;
+    if (cat === formCategory) {
+      b.classList.add("sel");
+      b.style.background = CATEGORIES[cat];
+    }
+    b.onclick = () => {
+      formCategory = cat;
+      renderCatPicker();
+      if (tempMarker) tempMarker.setIcon(pinIcon(CATEGORIES[cat]));
+    };
+    box.appendChild(b);
+  });
+}
+
+function renderDayPicker() {
+  const box = document.getElementById("dayPicker");
+  box.innerHTML = "";
+  for (let d = 0; d <= DAY_COUNT; d++) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = d === 0 ? "なし" : d + "日目";
+    if (d === formDay) {
+      b.classList.add("sel");
+      b.style.background = d === 0 ? "#5B6B76" : DAY_COLORS[d];
+    }
+    b.onclick = () => { formDay = d; renderDayPicker(); };
+    box.appendChild(b);
+  }
+  document.getElementById("timeWrap").classList.toggle("show", formDay > 0);
+}
+
+/* ---- 写真の選択・縮小 ---- */
+const photoInput = document.getElementById("photoInput");
+function renderPhotoEdit() {
+  const box = document.getElementById("photoEdit");
+  box.innerHTML = "";
+  const pending = [];
+  keepPhotoIds.forEach((pid, i) => {
+    const t = photoThumb("", () => { keepPhotoIds.splice(i, 1); renderPhotoEdit(); });
+    t.querySelector("img").dataset.pid = pid;
+    pending.push(t.querySelector("img"));
+    box.appendChild(t);
+  });
+  newPhotos.forEach((p, i) => {
+    box.appendChild(photoThumb(p.preview, () => {
+      newPhotos.splice(i, 1); renderPhotoEdit();
+    }));
+  });
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "photo-add";
+  add.textContent = "＋";
+  add.onclick = () => photoInput.click();
+  box.appendChild(add);
+  fillPhotos(pending);
+}
+function photoThumb(src, onDel) {
+  const wrap = document.createElement("div");
+  wrap.className = "ph";
+  const img = document.createElement("img");
+  if (src) img.src = src;
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "del";
+  del.textContent = "×";
+  del.onclick = onDel;
+  wrap.appendChild(img); wrap.appendChild(del);
+  return wrap;
+}
+photoInput.addEventListener("change", async () => {
+  for (const file of photoInput.files) {
+    try { newPhotos.push(await shrinkImage(file)); }
+    catch (e) { toast("この画像は読み込めませんでした"); }
+  }
+  photoInput.value = "";
+  renderPhotoEdit();
+});
+// 端末写真は大きいので長辺1280pxのJPEGに縮小してから送る
+function shrinkImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 1280;
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+      URL.revokeObjectURL(url);
+      resolve({ data: dataUrl.split(",")[1], mime: "image/jpeg", preview: dataUrl });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("load error")); };
+    img.src = url;
+  });
+}
+
+/* ---- 保存 ---- */
+const saveBtn = document.getElementById("saveBtn");
+saveBtn.addEventListener("click", async () => {
+  const name = document.getElementById("fName").value.trim();
+  if (!name) { toast("名前を入力してください"); return; }
+  saveBtn.disabled = true;
+  saveBtn.textContent = newPhotos.length ? "写真を送信中…" : "保存中…";
+  const pin = {
+    id: editing ? editing.id : Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+    name: name,
+    category: formCategory,
+    memo: document.getElementById("fMemo").value.trim(),
+    lat: formLatLng.lat,
+    lng: formLatLng.lng,
+    day: formDay,
+    time: formDay > 0 ? document.getElementById("fTime").value : "",
+    photoIds: keepPhotoIds
+  };
+  try {
+    const res = await api({ action: "save", pin: pin, newPhotos: newPhotos.map(p => ({ data: p.data, mime: p.mime })) });
+    const saved = res.pin;
+    const freshIds = saved.photoIds.slice(keepPhotoIds.length);
+    freshIds.forEach((pid, i) => { if (newPhotos[i]) photoCache[pid] = newPhotos[i].preview; });
+    const idx = pins.findIndex(p => p.id === saved.id);
+    if (idx >= 0) pins[idx] = saved; else pins.push(saved);
+    renderMarkers();
+    closeSheets(); stopPlacing();
+    toast(saved.day ? "保存しました（" + saved.day + "日目）" : "保存しました");
+  } catch (e) {
+    toast("保存に失敗しました: " + e.message);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "保存する";
+  }
+});
+
+/* ================= 場所検索 (Nominatim / OSM・キー不要) ================= */
+const searchInput = document.getElementById("searchInput");
+const searchResults = document.getElementById("searchResults");
+document.getElementById("searchBtn").addEventListener("click", doSearch);
+searchInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } });
+
+async function doSearch() {
+  const q = searchInput.value.trim();
+  if (!q) return;
+  searchInput.blur();
+  try {
+    const url = "https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=ja"
+      + "&viewbox=136.60,34.55,137.00,34.35&q=" + encodeURIComponent(q);
+    const res = await fetch(url);
+    const list = await res.json();
+    searchResults.innerHTML = "";
+    if (!list.length) { toast("見つかりませんでした"); return; }
+    list.forEach(r => {
+      const b = document.createElement("button");
+      b.innerHTML = "<strong></strong><small></small>";
+      b.querySelector("strong").textContent = r.display_name.split(",")[0];
+      b.querySelector("small").textContent = r.display_name;
+      b.onclick = () => {
+        searchResults.style.display = "none";
+        map.flyTo([+r.lat, +r.lon], 17);
+      };
+      searchResults.appendChild(b);
+    });
+    searchResults.style.display = "block";
+  } catch (e) {
+    toast("検索に失敗しました");
+  }
+}
+document.addEventListener("click", e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput) {
+    searchResults.style.display = "none";
+  }
+});
+
+/* ================= その他 ================= */
+document.getElementById("reloadBtn").addEventListener("click", () => loadPins(false));
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+// ヘッダー高さに合わせて帯と検索結果の位置を調整
+function layout() {
+  const h = document.getElementById("header").offsetHeight;
+  document.documentElement.style.setProperty("--header-h", h + "px");
+  searchResults.style.top = (h + 16) + "px";
+}
+window.addEventListener("resize", layout);
+layout();
+
+/* ================= 起動 ================= */
+if (GAS_URL.indexOf("https://") !== 0) {
+  toast("index.html の GAS_URL を設定してください");
+} else if (!apiKey) {
+  showGate("");
+} else {
+  loadPins(true); // 保存済みの合言葉で入る。違っていればゲートが出る
+}
+</script>
+</body>
+</html>
